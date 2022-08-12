@@ -1,0 +1,90 @@
+---
+- hosts: webservers
+  become: true
+  become_method: sudo
+  gather_facts: true
+  tasks:
+    - name: apt update
+      apt:
+        update_cache: true
+   
+    - name: Installing pip3
+      apt:
+       name: python3-pip
+       state: latest
+       update_cache: true
+
+    - name: Installing flask
+      pip:
+        executable: pip3
+        name: flask
+        state: latest
+
+    - name: Installing Gunicorn
+      apt:
+        name: gunicorn
+
+    - name: Installing SNMP
+      apt:
+        name: snmp
+        state: latest
+
+    - name: Install snmp-mibs-downloader
+      apt:
+        name: snmp-mibs-downloader
+        state: latest
+
+    - name: Installing snmpd
+      apt:
+        name: snmpd
+        state: latest
+    
+    - name: Copy the config file of snmpd 
+      template:
+         src: /$PWD/snmpd.conf
+         dest: /etc/snmp/snmpd.conf
+    
+    - name: Restarting snmpd
+      service:
+         name: snmpd
+         state: restarted
+         enabled: yes
+
+    - name: Copy service.py
+      copy:
+        src: /$PWD/service.py
+        dest: /home/ubuntu/application2.py
+        owner: ubuntu
+        mode: '0644'
+    
+    - name: Running Flask application
+      shell: gunicorn -w 3 -D -b 0.0.0.0:5000 service:app
+
+
+# haproxy configuration
+- hosts: all
+  gather_facts: true
+- hosts: HAproxy
+  become: true
+  
+  tasks:
+
+    - name: apt update
+      apt:
+        update_cache: yes
+
+    - name: Installing Nginx
+      apt:
+        name: nginx
+        state: latest
+
+    - name: Configure Nginx
+      template:
+        src: /$PWD/nginx.conf.j2
+        dest: /etc/nginx/nginx.conf
+
+    - name: Restart Nginx
+      service:
+        name: nginx
+        state: restarted
+
