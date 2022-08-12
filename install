@@ -93,7 +93,7 @@ echo "  IdentityFile $PWD/$ssh_key" >> ssh.config
 echo "  StrictHostKeyChecking no" >> ssh.config
 echo "  PasswordAuthentication no" >> ssh.config
 echo "  GSSAPIAuthentication no " >> ssh.config
-echo "[haproxy]" >> hosts
+echo "[HAproxy]" >> hosts
 echo "$2_haproxy ansible_user=$fip2" >> hosts
 echo "[webservers]" >> hosts
 
