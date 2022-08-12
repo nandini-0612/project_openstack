@@ -69,24 +69,24 @@ output_bastion=$(openstack server create --image "Ubuntu 20.04 Focal Fossa 20200
 bastion_fip1=$(openstack server add floating ip $2_bastion $fip1) 
 display "created bastion host with name $2_bastion" 
 echo "Host $2_bastion" >> ssh.config
-echo "  HostName $fip1 " >> ssh.config
-echo "  ForwardAgent yes " >> ssh.config
-echo "  ControlMaster auto " >> ssh.config
+echo "  HostName $fip1" >> ssh.config
+echo "  ForwardAgent yes" >> ssh.config
+echo "  ControlMaster auto" >> ssh.config
 echo "  ControlPath $PWD/control-%r@%h:%p" >> ssh.config
 echo "  user ubuntu" >> ssh.config
 echo "  IdentityFile $PWD/$ssh_key" >> ssh.config
 echo "  StrictHostKeyChecking no" >> ssh.config
 echo "  PasswordAuthentication no" >> ssh.config
-echo "  GSSAPIAuthentication no " >> ssh.config
-echo "  ControlPersist yes " >> ssh.config
+echo "  GSSAPIAuthentication no" >> ssh.config
+echo "  ControlPersist yes" >> ssh.config
 
 haproxy_ip=10.0.1.5
 output_haproxy=$(openstack server create --image "Ubuntu 20.04 Focal Fossa 20200423" --flavor "2C-6GB-20GB" --security-group $2_secgroup --nic net-id=$netid,v4-fixed-ip=$haproxy_ip --key-name $2_key --wait $2_haproxy)
 haproxy_fip2=$(openstack server add floating ip $2_haproxy $fip2)
 display "created haproxy host with name $2_haproxy"
 echo " " >> ssh.config
-echo "Host $2_haproxy " >> ssh.config
-echo "  HostName $fip2 " >> ssh.config
+echo "Host $2_haproxy" >> ssh.config
+echo "  HostName $fip2" >> ssh.config
 echo "  ProxyCommand ssh -W %h:%p $2_bastion" >> ssh.config
 echo "  user ubuntu" >> ssh.config
 echo "  IdentityFile $PWD/$ssh_key" >> ssh.config
@@ -111,14 +111,14 @@ then
         output_server=$(openstack server create --image "Ubuntu 20.04 Focal Fossa 20200423" --flavor "2C-6GB-20GB" --security-group $2_secgroup --nic net-id=$netid,v4-fixed-ip=$dev_ip --key-name $2_key --wait $name)
         display "created dev_server $name"
         echo " " >> ssh.config
-        echo "Host $name " >> ssh.config
-        echo "  HostName $dev_ip " >> ssh.config
+        echo "Host $name" >> ssh.config
+        echo "  HostName $dev_ip" >> ssh.config
         echo "  ProxyCommand ssh -w %h:%p $2_bastion" >> ssh.config
         echo "  user ubuntu" >> ssh_config
         echo "  IdentityFile $PWD/$ssh_key" >> ssh.config
         echo "  StrictHostKeyChecking no" >> ssh.config
         echo "  PasswordAuthentication no" >> ssh.config
-        echo "  GSSAPIAuthentication no " >> ssh.config
+        echo "  GSSAPIAuthentication no" >> ssh.config
         echo "$name ansible_user=$dev_ip" >> hosts
     done
 elif (( $server_count > $current_count ))
