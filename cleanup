@@ -1,0 +1,67 @@
+#!/bin/bash
+
+openrcfile="$1"
+tag="$2"
+ssh_key="$3"
+server_count_file="server.conf"
+
+
+display() {
+    echo "[`date`] $1"
+}
+
+display "Starting process to cleaning up for tag: "$tag" using credentails from $openrcfile"
+source $openrcfile
+
+#delete servers
+delete_servers(){
+  tag_name=$1
+  server_name=$(openstack server list --status ACTIVE -f value -c Name)
+  server_list=(${server_name// / })
+  if [ ${#server_list[@]} -eq 0 ]; then
+    display "Skipping server deletion as there are no servers to delete"
+  else
+    for ((i=0; i<${#server_list[@]}; i++ ))
+    do 
+      if [[ "${server_list[$i]}" == "$tag_name"_* ]]; then
+        openstack server delete --wait "${server_list[$i]}" 2> /dev/null
+        display "Deleted server "${server_list[$i]}""
+      fi
+    done
+  fi
+}
+
+delete_servers $tag
+
+#delete floating ip
+fip1="$(cat floating_ip)"
+fip2="$(cat floating_ip1)"
+delete_fip1=$(openstack floating ip delete $fip1 2> /dev/null)
+delete_fip2=$(openstack floating ip delete $fip2 2> /dev/null)
+display "deleted floating ips"
+
+#delete router and subnet
+delete_extgw=$(openstack router unset --external-gateway $2_router 2> /dev/null)
+delete_subnet_router=$(openstack router remove subnet $2_router $2_subnet 2> /dev/null)
+delete_router=$(openstack router delete $2_router)
+display "deleted router"
+
+#delete subnet and subnet pool
+delete_subnet=$(openstack subnet delete $2_subnet 2> /dev/null)
+delete_subnetpool=$(openstack subnet pool delete $2_subnetpool 2> /dev/null)
+display "deleted subnet and subnetpool"
+
+#delete security group
+delete_secgroup=$(openstack security group delete $2_secgroup 2> /dev/null)
+display "delete security group"
+
+#delete network
+delete_network=$(openstack network delete $2_network 2> /dev/null)
+display "deleted network"
+
+#delete keypair
+delete_keypair=$(openstack keypair delete $2_key 2> /dev/null)
+display "deleted keypair"
+
+display "########END#######"
+
