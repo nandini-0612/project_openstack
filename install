@@ -1,0 +1,146 @@
+#!/bin/bash
+
+
+display() {
+    echo "[`date`] $1"
+}
+
+
+openrcfile="$1"
+tag="$2"
+ssh_key="$3"
+server_count_file="server.conf"
+server_count=$(cat server.conf)
+
+display "Starting process of installation for tag: "$tag" using credentails from $openrcfile"
+
+source $openrcfile
+#create ssh keypair
+
+output_key=$(openstack keypair create $2_key > $ssh_key)
+chmod 600 $ssh_key 
+display "created keypair $2_key"
+
+#create floating ip
+output_fip1=$(openstack floating ip create ext-net -f json | jq -r '.floating_ip_address' > floating_ip)
+fip1="$(cat floating_ip)"
+
+output_fip2=$(openstack floating ip create ext-net -f json | jq -r '.floating_ip_address' > floating_ip1)
+fip2="$(cat floating_ip1)"
+display "created 2 floating ip"
+
+#create network
+output_network=$(openstack network create -f json --tag project $2_network | jq -r '.id' > network_id)
+display "created network with name $2_network"
+netid=$(cat network_id)
+
+#create router
+output_router=$(openstack router create --tag project $2_router)
+display "created router with name $2_router"
+
+#create subnet pool
+output_subnetpool=$(openstack subnet pool create --pool-prefix 10.0.1.0/24 --tag project $2_subnetpool)
+display "created subnetpool with name $2_subnetpool"
+
+#create subnet
+output_subnet=$(openstack subnet create --subnet-pool $2_subnetpool --prefix-length 24 --dhcp --gateway 10.0.1.1 --ip-version 4 --network $2_network --tag project $2_subnet)
+display "created subnet with name $2_subnet"
+
+#create router
+#openstack router create --tag project $2_router
+#display "created router with name $2_router"
+output_subnet_router=$(openstack router add subnet $2_router $2_subnet)
+display "added $2_subnet to the $2_router"
+output_extgw=$(openstack router set --external-gateway ext-net $2_router)
+display "setting external gateway to $2_router"
+
+#create security group
+output_secgroup=$(openstack security group create --tag project $2_secgroup)
+output_secrule1=$(openstack security group rule create --remote-ip 0.0.0.0/0 --dst-port 22 --protocol tcp --ingress $2_secgroup)
+output_secrule2=$(openstack security group rule create --remote-ip 0.0.0.0/0 --dst-port 5000 --protocol tcp --ingress $2_secgroup)
+output_secrule3=$(openstack security group rule create --remote-ip 0.0.0.0/0 --dst-port 53 --protocol udp --ingress $2_secgroup)
+output_secrule4=$(openstack security group rule create --remote-ip 0.0.0.0/0 --dst-port 6000 --protocol udp --ingress $2_secgroup)
+output_secrule5=$(openstack security group rule create --remote-ip 0.0.0.0/0 --dst-port 80 --protocol icmp --ingress $2_secgroup)
+display "creating security groups"
+#create servers
+#create bastion server 
+bastion_ip=10.0.1.4
+output_bastion=$(openstack server create --image "Ubuntu 20.04 Focal Fossa 20200423" --flavor "2C-6GB-20GB" --security-group $2_secgroup --nic net-id=$netid,v4-fixed-ip=$bastion_ip --key-name $2_key --wait $2_bastion)
+bastion_fip1=$(openstack server add floating ip $2_bastion $fip1) 
+display "created bastion host with name $2_bastion" 
+echo "Host $2_bastion" >> ssh.config
+echo "  HostName $fip1 " >> ssh.config
+echo "  ForwardAgent yes " >> ssh.config
+echo "  ControlMaster auto " >> ssh.config
+echo "  ControlPath $PWD/control-%r@%h:%p" >> ssh.config
+echo "  user ubuntu" >> ssh.config
+echo "  IdentityFile $PWD/$ssh_key" >> ssh.config
+echo "  StrictHostKeyChecking no" >> ssh.config
+echo "  PasswordAuthentication no" >> ssh.config
+echo "  GSSAPIAuthentication no " >> ssh.config
+echo "  ControlPersist yes " >> ssh.config
+
+haproxy_ip=10.0.1.5
+output_haproxy=$(openstack server create --image "Ubuntu 20.04 Focal Fossa 20200423" --flavor "2C-6GB-20GB" --security-group $2_secgroup --nic net-id=$netid,v4-fixed-ip=$haproxy_ip --key-name $2_key --wait $2_haproxy)
+haproxy_fip2=$(openstack server add floating ip $2_haproxy $fip2)
+display "created haproxy host with name $2_haproxy"
+echo " " >> ssh.config
+echo "Host $2_haproxy " >> ssh.config
+echo "  HostName $fip2 " >> ssh.config
+echo "  ProxyCommand ssh -W %h:%p $2_bastion" >> ssh.config
+echo "  user ubuntu" >> ssh.config
+echo "  IdentityFile $PWD/$ssh_key" >> ssh.config
+echo "  StrictHostKeyChecking no" >> ssh.config
+echo "  PasswordAuthentication no" >> ssh.config
+echo "  GSSAPIAuthentication no " >> ssh.config
+echo "[haproxy]" >> hosts
+echo "$2_haproxy ansible_user=$fip2" >> hosts
+echo "[webservers]" >> hosts
+
+
+servers_list=$(openstack server list --status ACTIVE -f value -c Name 2> /dev/null)
+current_count=$(grep -ocP $2_dev <<< $server_list)
+#dev_ip=10.0.1.11
+if (( $server_count > $current_count))
+then 
+    add=$(($server_count-$current_count))
+    for i in $(seq 1 $add)
+    do
+        name=$2_dev$i
+        dev_ip=10.0.1.1$i
+        output_server=$(openstack server create --image "Ubuntu 20.04 Focal Fossa 20200423" --flavor "2C-6GB-20GB" --security-group $2_secgroup --nic net-id=$netid,v4-fixed-ip=$dev_ip --key-name $2_key --wait $name)
+        display "created dev_server $name"
+        echo " " >> ssh.config
+        echo "Host $name " >> ssh.config
+        echo "  HostName $dev_ip " >> ssh.config
+        echo "  ProxyCommand ssh -w %h:%p $2_bastion" >> ssh.config
+        echo "  user ubuntu" >> ssh_config
+        echo "  IdentityFile $PWD/$ssh_key" >> ssh.config
+        echo "  StrictHostKeyChecking no" >> ssh.config
+        echo "  PasswordAuthentication no" >> ssh.config
+        echo "  GSSAPIAuthentication no " >> ssh.config
+        echo "$name ansible_user=$dev_ip" >> hosts
+    done
+elif (( $server_count > $current_count ))
+then
+    rem=$(($current_count - $server_count))
+    for i in $(seq 1 $rem)
+    do
+        servers_list1=$(openstack server list --status ACTIVE -f value -c Name 2> /dev/null)
+        name=$(grep -m1 -oP "$2"'_dev([0-9]+)' <<< $servers_list1 )
+        output_server=$(openstack server delete $name --wait)
+    done
+else
+    display " required number of dev_servers are present"
+fi
+
+display "building ssh_config file"
+echo "[all:vars]" >> hosts
+echo "ansible_user=ubuntu" >> hosts
+echo "ansible_ssh_private_key_file = $PWD/$ssh_key" >> hosts
+echo "ansible_ssh_common_args='-F ssh.config -o StrictHostKeyChecking=no -o UserKnownHostsFile=users -o ProxyCommand=\"ssh -o StrictHostKeyChecking=no -W [%h]:%p -q ubuntu@$fip1 -o IdentityFile=$ssh_key -o Port=80 -W %h:%p -o StrictHostKeyChecking=no -o UserKnownHostsFile=users\"'" >> hosts
+display "running playbook"
+ansible-playbook --private-key $ssh_key -i hosts site.yaml
+
+
+
