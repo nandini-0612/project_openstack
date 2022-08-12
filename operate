@@ -1,0 +1,84 @@
+#!/bin/bash
+
+
+display() {
+    echo "[`date`] $1"
+}
+
+
+
+# create dev serves 
+create/delete_dev_servers() {
+    # check if required number of dev servers  already exists
+    init_servers_list=$(openstack server list --status ACTIVE -f value -c Name 2> /dev/null)
+    current_server_count=$(grep -ocP "${tag}"_dev <<< $init_servers_list )
+    if (( $1 > $current_server_count )); then
+        add=$(($1-$current_server_count))
+        no=1
+        for i in $(seq 1 $add)
+        do
+            check_servers_list1=$(openstack server list --status ACTIVE -f value -c Name 2> /dev/null)
+            name=${tag}_dev$no
+            while [ $(grep -ocP "${tag}"_dev$no <<< $check_servers_list1 ) -ne 0  ]
+            do
+                no=$(( $no + 1 ))
+                name=${tag}_dev$no
+                if [ $(grep -ocP "${tag}"_dev$no <<< $check_servers_list1 ) -eq 0  ]; then
+                    break
+                fi
+            done
+            create_server_output=$(openstack server create --image "Ubuntu 20.04 Focal Fossa 20200423"  $name --key-name "$tag"_key --flavor "2C-6GB-20GB" --network "$tag"_network --wait 2> /dev/null)
+            display "Currently running dev servers count is $current_server_count which is less then required number $1 created server $name"
+        done
+    elif (( $1 < $current_server_count )); then
+        rm=$(($current_server_count-$1))
+        for i in $(seq 1 $rm)
+        do
+            check_servers_list1=$(openstack server list --status ACTIVE -f value -c Name 2> /dev/null)
+            name=$(grep -m1 -oP "${tag}"'_dev([0-9]+)' <<< $check_servers_list1 )
+            delete_server_output=$(openstack server delete $name --wait 2> /dev/null)
+            display "Running dev servers count is $current_server_count which is greater then required $1 deleted server $name"
+        done
+    else 
+        display "Currently running dev servers count is $current_server_count which is same as required $1 "
+    fi
+}
+
+validate_file() {
+    if [ ! -f "$1" ]; then
+        display_log "$1 does not exists. Exiting "
+        exit 1
+    fi
+
+    if [ ! -s $1 ]; then
+        display_log "$1 is empty. Exiting "
+        exit 1
+    fi
+}
+
+
+# main starts from here
+
+
+
+openrcfile=$1;
+tag=$2;
+ssh_key=$3;
+server_count_conf_file="server.conf"
+
+
+# start operation process
+display "Starting operation process to handle dev servers for tag:$tag using $openrcfile for credentails."
+source $openrcfile
+
+while true
+do
+    #the output of the server.conf file is given to this variable
+    req_number=$(cat "$server_count_conf_file")   
+    re='^[0-9]+$'
+    if ! [[ $req_number =~ $re ]] ; then
+        echo "error: Not a number" 
+        exit 1
+    fi
+    create/delete_dev_servers $req_number
+done
