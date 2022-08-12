@@ -114,7 +114,7 @@ then
         echo "Host $name" >> ssh.config
         echo "  HostName $dev_ip" >> ssh.config
         echo "  ProxyCommand ssh -w %h:%p $2_bastion" >> ssh.config
-        echo "  user ubuntu" >> ssh_config
+        echo "  user ubuntu" >> ssh.config
         echo "  IdentityFile $PWD/$ssh_key" >> ssh.config
         echo "  StrictHostKeyChecking no" >> ssh.config
         echo "  PasswordAuthentication no" >> ssh.config
