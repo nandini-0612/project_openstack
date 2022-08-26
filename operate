@@ -46,12 +46,12 @@ create/delete_dev_servers() {
 
 validate_file() {
     if [ ! -f "$1" ]; then
-        display_log "$1 does not exists. Exiting "
+        display "$1 does not exists. Exiting "
         exit 1
     fi
 
     if [ ! -s $1 ]; then
-        display_log "$1 is empty. Exiting "
+        display "$1 is empty. Exiting "
         exit 1
     fi
 }
