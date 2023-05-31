@@ -1,17 +1,11 @@
 #!/bin/bash
 
-openrcfile="$1"
-tag="$2"
-ssh_key="$3"
-server_count_file="server.conf"
-
 
 display() {
     echo "[`date`] $1"
 }
 
-display "Starting process to cleaning up for tag: "$tag" using credentails from $openrcfile"
-source $openrcfile
+
 
 #delete servers
 delete_servers(){
@@ -31,14 +25,61 @@ delete_servers(){
   fi
 }
 
+openrcfile="$1"
+tag="$2"
+ssh_key="$3"
+server_count_file="server.conf"
+
+source $openrcfile
+
+display "Starting process to cleaning up for tag: "$tag" using credentails from $openrcfile"
+
+
 delete_servers $tag
 
+# output_delete_server_backup=$(openstack server delete backup_proxy)
+# display "delete backup proxy"
+# output_delete_server_master=$(openstack server delete master_proxy)
+# display "delete master proxy"
+
 #delete floating ip
-fip1="$(cat floating_ip)"
-fip2="$(cat floating_ip1)"
+if [ -f floating_ip_1 ] ; then
+    fip1=$(cat floating_ip_1)
+    rm floating_ip_1
+fi
+if [ -f floating_ip_2 ] ; then
+    fip2=$(cat floating_ip_2)
+    rm floating_ip_2
+fi
+if [ -f available ] ; then
+    rm available
+fi
+if [ -f two_available ] ; then
+    rm two_available
+fi
+
 delete_fip1=$(openstack floating ip delete $fip1 2> /dev/null)
 delete_fip2=$(openstack floating ip delete $fip2 2> /dev/null)
+
 display "deleted floating ips"
+
+#delete ports
+# master=$(cat master_id)
+# backup=$(cat backup_id)
+# vrrp=$(cat vrrp_id)
+delete_backup_port=$(openstack port delete $2_vrrp_port 2> /dev/null)
+delete_vrrp_port=$(openstack port delete $2_vrrp_master_port 2> /dev/null)
+delete_master_port=$(openstack port delete $2_vrrp_backup_port 2> /dev/null)
+if [ -f vrrp_id ] ; then
+    rm vrrp_id
+fi
+if [ -f master_id ] ; then
+    rm master_id
+fi
+if [ -f backup_id ] ; then
+    rm backup_id
+fi
+display "deleted ports"
 
 #delete router and subnet
 delete_extgw=$(openstack router unset --external-gateway $2_router 2> /dev/null)
@@ -48,7 +89,10 @@ display "deleted router"
 
 #delete subnet and subnet pool
 delete_subnet=$(openstack subnet delete $2_subnet 2> /dev/null)
-delete_subnetpool=$(openstack subnet pool delete $2_subnetpool 2> /dev/null)
+delete_subnetpool=$(openstack subnet pool delete $2_subnet_pool 2> /dev/null)
+if [ -f subnet_id ] ; then
+    rm subnet_id
+fi
 display "deleted subnet and subnetpool"
 
 #delete security group
@@ -57,6 +101,9 @@ display "delete security group"
 
 #delete network
 delete_network=$(openstack network delete $2_network 2> /dev/null)
+if [ -f network_id ] ; then
+    rm network_id
+fi
 display "deleted network"
 
 #delete keypair
@@ -64,4 +111,6 @@ delete_keypair=$(openstack keypair delete $2_key 2> /dev/null)
 display "deleted keypair"
 
 display "########END#######"
+
+
 
