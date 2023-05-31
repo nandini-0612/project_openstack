@@ -5,6 +5,104 @@ display() {
     echo "[`date`] $1"
 }
 
+#generate the configuration file for ansible playbook
+
+
+generate_file() {
+    if [ -f $hosts_file ] ; then
+        rm $hosts_file
+    fi
+
+    if [ -f $ssh_config_file ] ; then
+        rm $ssh_config_file
+    fi
+
+    if [[  -f "$knownhosts_file" ]]; then
+        rm "$knownhosts_file"
+    fi
+    fip1="$(cat floating_ip_1)"
+    haproxy_ip_1=10.0.0.5
+    haproxy_ip_2=10.0.0.6
+
+    echo "Host "$tag"_bastion" >> $ssh_config_file
+    echo "  HostName $fip1" >> $ssh_config_file
+    echo "  User ubuntu" >> $ssh_config_file
+    echo "  IdentityFile ~/.ssh/$ssh_key" >> $ssh_config_file
+    echo "  Port 22" >> $ssh_config_file
+    echo "  ForwardAgent yes" >> $ssh_config_file
+    echo "  ControlMaster auto" >> $ssh_config_file
+    echo "  StrictHostKeyChecking no" >> $ssh_config_file
+    echo "  ControlPath ~/.ssh/ansible-%r@%h:%p" >> $ssh_config_file
+    echo "  ControlPersist 5m" >> $ssh_config_file
+    echo "[bastion]" >> $hosts_file_2
+    echo "$2_bastion ansible_host=$fip1 ansible_user=ubuntu" >> $hosts_file_2
+
+    out_haproxy_1=$(openstack server list --name "$tag"_haproxy_1 -f json | jq --raw-output '.[] | .["ID"]')
+    if [[ -z "$out_haproxy_1" ]]; then
+        display "Did not detect "$tag"_haproxy_1"
+    else
+        display ""$tag"_haproxy_1 exists adding in new config file..."
+        echo "" >> $ssh_config_file
+        echo "Host "$tag"_haproxy_1" >> $ssh_config_file
+        echo "  HostName $haproxy_ip_1" >> $ssh_config_file
+        echo "  User ubuntu" >> $ssh_config_file
+        echo "  IdentityFile ~/.ssh/$ssh_key" >> $ssh_config_file
+        echo "  StrictHostKeyChecking no" >> $ssh_config_file
+        echo "  ProxyCommand ssh -q -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa "$tag"_bastion -W %h:%p" >> $ssh_config_file
+        echo "  PasswordAuthentication no" >> $ssh_config_file
+        echo "[HAproxy_1]" >> $hosts_file
+        echo ""$tag"_haproxy_1 ansible_host=$haproxy_ip_1">> $hosts_file
+    fi
+
+    out_haproxy_2=$(openstack server list --name "$tag"_haproxy_2 -f json | jq --raw-output '.[] | .["ID"]')
+    if [[ -z "$out_haproxy_2" ]]; then
+        display "Did not detect "$tag"_haproxy_2"
+    else
+        display ""$tag"_haproxy_2 exists adding in new config file..."
+        echo "" >> $ssh_config_file
+        echo "Host "$tag"_haproxy_2" >> $ssh_config_file
+        echo "  HostName $haproxy_ip_2" >> $ssh_config_file
+        echo "  User ubuntu" >> $ssh_config_file
+        echo "  IdentityFile ~/.ssh/$ssh_key" >> $ssh_config_file
+        echo "  StrictHostKeyChecking no" >> $ssh_config_file
+        echo "  ProxyCommand ssh -q -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa "$tag"_bastion -W %h:%p" >> $ssh_config_file
+        echo "  PasswordAuthentication no" >> $ssh_config_file
+        echo "[HAproxy_2]" >> $hosts_file
+        echo ""$tag"_haproxy_2 ansible_host=$haproxy_ip_2">> $hosts_file
+    fi
+
+
+    echo "[webservers]">> $hosts_file
+
+    server_names=$(openstack server list -f value -c Name | grep -E ""$tag"_dev*")
+
+
+    echo "$server_names" | while IFS= read -r server_name; do
+        server_ip=$(openstack server show "$server_name" -f json | jq -r '.addresses | to_entries[].value[0]')
+        #dev_ip=$(echo "$server_details" | jq -r '.addresses | to_entries[].value[0]')
+
+        echo "" >> $ssh_config_file
+        echo "Host $server_name" >> $ssh_config_file
+        echo "  HostName $server_ip" >> $ssh_config_file
+        echo "  User ubuntu" >> $ssh_config_file
+        echo "  IdentityFile ~/.ssh/$ssh_key" >> $ssh_config_file
+        echo "  StrictHostKeyChecking no" >> $ssh_config_file
+        echo "  ProxyCommand ssh -q -o StrictHostKeyChecking=no -i ~/.ssh/$ssh_key "$tag"_bastion -W %h:%p" >> $ssh_config_file
+        echo "  PasswordAuthentication no" >> $ssh_config_file
+        echo "$server_name ansible_host=$server_ip" >> $hosts_file
+        display "adding $server_name into the new config file"
+    done
+    echo "[all:vars]" >> $hosts_file
+    echo "ansible_user=ubuntu" >> $hosts_file
+    echo "ansible_ssh_private_key_file = ~/.ssh/$ssh_key" >> $hosts_file
+    echo "ansible_ssh_common_args='-F $ssh_config_file -o StrictHostKeyChecking=no -o UserKnownHostsFile=users -o ProxyCommand=\"ssh -q ubuntu@$fip1 -o IdentityFile=~/.ssh/$ssh_key -o Port=22 -W %h:%p -o StrictHostKeyChecking=no -o UserKnownHostsFile=users\"'" >> $hosts_file
+    echo -n "ansible_python_interpreter=/usr/bin/python3" >> $hosts_file
+    chmod 600 $ssh_config_file
+    display "running the playbook..."
+
+    ansible-playbook -i hosts --ssh-common-args '-F ~/.ssh/'$ssh_key'' site.yaml
+
+}
 
 
 # create dev serves 
@@ -30,6 +128,8 @@ create/delete_dev_servers() {
             create_server_output=$(openstack server create --image "Ubuntu 20.04 Focal Fossa 20200423"  $name --key-name "$tag"_key --flavor "2C-6GB-20GB" --network "$tag"_network --wait 2> /dev/null)
             display "Currently running dev servers count is $current_server_count which is less then required number $1 created server $name"
         done
+        display "starting creation of new config file"
+        generate_file 
     elif (( $1 < $current_server_count )); then
         rm=$(($current_server_count-$1))
         for i in $(seq 1 $rm)
@@ -37,34 +137,27 @@ create/delete_dev_servers() {
             check_servers_list1=$(openstack server list --status ACTIVE -f value -c Name 2> /dev/null)
             name=$(grep -m1 -oP "${tag}"'_dev([0-9]+)' <<< $check_servers_list1 )
             delete_server_output=$(openstack server delete $name --wait 2> /dev/null)
-            display "Running dev servers count is $current_server_count which is greater then required $1 deleted server $name"
+            display "Running dev servers count is $current_server_count which is greater then required $1 deleted server $name" 
         done
+        # sed -i "/^Host $name$/,/^$/d" $ssh_config_file
+        # sed -i "/^$name/d" $hosts_file
+        display "starting creation of new config file"
+        generate_file
+        #ansible-playbook -i hosts --ssh-common-args '-F ~/.ssh/'$ssh_key'' site2.yaml
     else 
         display "Currently running dev servers count is $current_server_count which is same as required $1 "
     fi
 }
-
-validate_file() {
-    if [ ! -f "$1" ]; then
-        display "$1 does not exists. Exiting "
-        exit 1
-    fi
-
-    if [ ! -s $1 ]; then
-        display "$1 is empty. Exiting "
-        exit 1
-    fi
-}
-
-
-# main starts from here
-
 
 
 openrcfile=$1;
 tag=$2;
 ssh_key=$3;
 server_count_conf_file="server.conf"
+ssh_config_file="ssh_config"
+hosts_file="hosts"
+hosts_file_2="hosts2"
+knownhosts_file="users"
 
 
 # start operation process
