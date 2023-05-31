@@ -1,90 +1,218 @@
 ---
-- hosts: webservers
-  become: true
-  become_method: sudo
-  gather_facts: true
+
+- hosts: HAproxy_1
+  become: yes
+
   tasks:
-    - name: apt update
+
+    - name: update apt cache
+      become: true
       apt:
         update_cache: true
-   
-    - name: Installing pip3
-      apt:
-       name: python3-pip
-       state: latest
-       update_cache: true
 
-    - name: Installing flask
-      pip:
-        executable: pip3
-        name: flask
+    - name: install keepalived
+      become: true
+      apt:
+        name: [keepalived, ipvsadm]
         state: latest
 
-    - name: Installing Gunicorn
+    - name: install haproxy
+      become: true
       apt:
-        name: gunicorn
-
-    - name: Installing SNMP
-      apt:
-        name: snmp
+        name: haproxy
         state: latest
 
-    - name: Install snmp-mibs-downloader
+    - name: installing Nginx 
       apt:
-        name: snmp-mibs-downloader
-        state: latest
+        name: nginx
+        state: latest 
 
-    - name: Installing snmpd
-      apt:
-        name: snmpd
-        state: latest
-    
-    - name: Copy the config file of snmpd 
-      template:
-         src: /$PWD/snmpd.conf
-         dest: /etc/snmp/snmpd.conf
-    
-    - name: Restarting snmpd
-      service:
-         name: snmpd
-         state: restarted
-         enabled: yes
+- hosts: HAproxy_2
+  become: yes
 
-    - name: Copy service.py
-      copy:
-        src: /$PWD/service.py
-        dest: /home/ubuntu/application2.py
-        owner: ubuntu
-        mode: '0644'
-    
-    - name: Running Flask application
-      shell: gunicorn -w 3 -D -b 0.0.0.0:5000 service:app
-
-
-# haproxy configuration
-- hosts: all
-  gather_facts: true
-- hosts: HAproxy
-  become: true
-  
   tasks:
 
-    - name: apt update
+    - name: update apt cache
+      become: true
       apt:
-        update_cache: yes
+        update_cache: true
 
-    - name: Installing Nginx
+    - name: install keepalived
+      become: true
+      apt:
+        name: [keepalived, ipvsadm]
+        state: latest
+
+    - name: install haproxy
+      become: true
+      apt:
+        name: haproxy
+        state: latest
+
+    - name: installing Nginx 
       apt:
         name: nginx
         state: latest
 
-    - name: Configure Nginx
-      template:
-        src: /$PWD/nginx.conf.j2
-        dest: /etc/nginx/nginx.conf
+- hosts: webservers
+  become: yes
+  
+  tasks:
 
-    - name: Restart Nginx
+    - name: update cache
+      apt:
+        update_cache: true
+      become: true
+
+    - name: install pip
+      apt:
+        name: python3-pip
+        state: present
+        update_cache: true
+
+    - name: install flask with pip
+      pip:
+        executable: pip
+        name: flask
+        state: latest
+
+    - name: install gunicorn
+      apt:
+        name: gunicorn
+        state : present
+
+    - name: install snmpd
+      apt:
+        name: snmpd
+        state: latest
+
+    - name: Configure snmpd
+      template:
+        src: "./snmpd.conf"
+        dest: "/etc/snmp/snmpd.conf"
+    
+    - name: restart snmpd
+      service:
+        name: snmpd
+        state: restarted
+
+    - name: copy the code
+      copy:
+        src: service.py
+        dest: ./service.py
+        owner: ubuntu
+        mode: '0644'
+
+    - name: Run Flask app
+      shell: gunicorn -w 2 -D -b 0.0.0.0:5000 service:app
+      
+# haproxy configuration
+
+- hosts: webservers
+  gather_facts: yes
+
+- hosts: HAproxy_1
+  become: yes
+  tasks:
+    - name: deploy new haproxy configuration
+      template:
+        src: haproxy.cfg.j2
+        dest: "/etc/haproxy/haproxy.cfg"
+
+    - name: Haproxy restart
+      service:
+        name: haproxy
+        state: restarted
+       
+    - name: Configuring nginx for UDP loadbalancing  
+      template:
+        src: "./nginx.conf.j2"
+        dest: "/etc/nginx/nginx.conf"
+
+    - name: restarting nginx
       service:
         name: nginx
         state: restarted
 
+    - name: copy keepalived conf file
+      template:
+        src: keepalived1.conf
+        dest: /etc/keepalived/keepalived.conf
+        owner: ubuntu
+        mode: '0644'
+    - name: restarting keepalived
+      service:
+        name: keepalived
+        state: restarted
+
+- hosts: HAproxy_2
+  become: yes
+  tasks:
+
+    - name: deploy new haproxy configuration
+      template:
+        src: haproxy.cfg.j2
+        dest: "/etc/haproxy/haproxy.cfg"
+
+    - name: Haproxy restart
+      service:
+        name: haproxy
+        state: restarted
+       
+    - name: Configuring nginx for UDP loadbalancing  
+      template:
+        src: "./nginx.conf.j2"
+        dest: "/etc/nginx/nginx.conf"
+
+    - name: restarting nginx
+      service:
+        name: nginx
+        state: restarted
+
+    - name: copy keepalived conf file
+      template:
+        src: keepalived2.conf
+        dest: /etc/keepalived/keepalived.conf
+        owner: ubuntu
+        mode: '0644'
+    - name: restarting keepalived
+      service:
+        name: keepalived
+        state: restarted
+
+- hosts: all
+  become: True
+  become_user: root
+  vars:
+    node_exporter_version: 1.1.2
+  tasks:
+    - name: download node exporter
+      get_url:
+        url: https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz
+        dest: /tmp
+    - name: unarchive node exporter
+      unarchive:
+        remote_src: yes
+        src: /tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz
+        dest: /tmp
+    - name: move node exporter to /usr/local/bin
+      copy:
+        src: /tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter
+        dest: /usr/local/bin/node_exporter
+        remote_src: yes
+        owner: root
+        group: root
+        mode: 0755
+    - name: install unit file to systemd
+      template:
+        src: node_exporter.service.j2
+        dest: /etc/systemd/system/node_exporter.service
+        owner: root
+        group: root
+        mode: 0600
+    - name: configure systemd to use service
+      systemd:
+        daemon_reload: yes
+        enabled: yes
+        state: started
+        name: node_exporter.service
