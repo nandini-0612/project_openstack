@@ -241,7 +241,7 @@ display "creating vrrp port"
 # out_port_setting_1=$(openstack port set --fixed-ip subnet=$subnetid,ip-address=10.0.0.5 $2_vrrp_master_port)
 # out_port_setting_2=$(openstack port set --fixed-ip subnet=$subnetid,ip-address=10.0.0.6 $2_vrrp_backup_port)
 
-out_active_3=$(openstack port set --enable $2_vrrp_port)
+#out_active_3=$(openstack port set --enable $2_vrrp_port)
 
 
 out_active_1=$(openstack port set --enable $2_vrrp_master_port)
